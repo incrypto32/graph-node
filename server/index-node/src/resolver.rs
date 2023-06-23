@@ -63,6 +63,7 @@ pub struct IndexNodeResolver<S: Store> {
     logger: Logger,
     blockchain_map: Arc<BlockchainMap>,
     store: Arc<S>,
+    #[allow(dead_code)]
     link_resolver: Arc<dyn LinkResolver>,
     bearer_token: Option<String>,
 }
@@ -498,7 +499,7 @@ impl<S: Store> IndexNodeResolver<S> {
         })?;
 
         let subgraph_store = self.store.subgraph_store();
-        let deployment_features = subgraph_store.subgraph_features(&deployment_hash)?;
+        let deployment_features = subgraph_store.subgraph_features(&deployment_hash).await?;
 
         Ok(deployment_features.into_value())
     }
