@@ -217,6 +217,7 @@ impl blockchain::BlockchainBuilder<super::Chain> for BasicBlockchainBuilder {
             chain_store,
             firehose_endpoints,
             metrics_registry,
+            ..
         } = self;
 
         Chain {

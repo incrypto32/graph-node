@@ -1,10 +1,12 @@
 use anyhow::anyhow;
 use graph::blockchain::client::ChainClient;
 use graph::blockchain::firehose_block_ingestor::FirehoseBlockIngestor;
+use graph::blockchain::polling_block_stream::PollingBlockStream;
 use graph::blockchain::substreams_block_stream::SubstreamsBlockStream;
 use graph::blockchain::{
-    BasicBlockchainBuilder, BlockIngestor, BlockchainBuilder, BlockchainKind, NoopDecoderHook,
-    NoopRuntimeAdapter, Trigger, TriggerFilterWrapper,
+    BasicBlockchainBuilder, BlockIngestor, BlockchainBuilder, BlockchainKind,
+    ChainHeadUpdateListener, NoopDecoderHook, NoopRuntimeAdapter, Trigger,
+    TriggerFilter as TriggerFilterTrait, TriggerFilterWrapper,
 };
 use graph::cheap_clone::CheapClone;
 use graph::components::adapter::ChainId;
@@ -12,8 +14,8 @@ use graph::components::store::{DeploymentCursorTracker, WritableStore};
 use graph::data::subgraph::UnifiedMappingApiVersion;
 use graph::env::EnvVars;
 use graph::firehose::FirehoseEndpoint;
-use graph::futures03::TryFutureExt;
-use graph::prelude::{DeploymentHash, MetricsRegistry};
+use graph::futures03::{stream, TryFutureExt};
+use graph::prelude::{DeploymentHash, MetricsRegistry, NodeId};
 use graph::schema::InputSchema;
 use graph::substreams::{Clock, Package};
 use graph::{
@@ -46,6 +48,7 @@ use crate::{
 };
 use graph::blockchain::block_stream::{
     BlockStream, BlockStreamBuilder, BlockStreamError, BlockStreamMapper, FirehoseCursor,
+    TriggersAdapterWrapper,
 };
 
 const NEAR_FILTER_MODULE_NAME: &str = "near_filter";
@@ -110,6 +113,7 @@ impl BlockStreamBuilder<Chain> for NearStreamBuilder {
             chain.metrics_registry.clone(),
         )))
     }
+
     async fn build_firehose(
         &self,
         chain: &Chain,
@@ -150,15 +154,61 @@ impl BlockStreamBuilder<Chain> for NearStreamBuilder {
 
     async fn build_polling(
         &self,
-        _chain: &Chain,
-        _deployment: DeploymentLocator,
-        _start_blocks: Vec<BlockNumber>,
-        _source_subgraph_stores: HashMap<DeploymentHash, Arc<dyn WritableStore>>,
-        _subgraph_current_block: Option<BlockPtr>,
-        _filter: Arc<TriggerFilterWrapper<Chain>>,
-        _unified_api_version: UnifiedMappingApiVersion,
+        chain: &Chain,
+        deployment: DeploymentLocator,
+        start_blocks: Vec<BlockNumber>,
+        source_subgraph_stores: HashMap<DeploymentHash, Arc<dyn WritableStore>>,
+        subgraph_current_block: Option<BlockPtr>,
+        filter: Arc<TriggerFilterWrapper<Chain>>,
+        unified_api_version: UnifiedMappingApiVersion,
     ) -> Result<Box<dyn BlockStream<Chain>>> {
-        todo!()
+        let requirements = filter.chain_filter.node_capabilities();
+        let is_using_subgraph_composition = !source_subgraph_stores.is_empty();
+        let adapter = TriggersAdapterWrapper::new(
+            chain
+                .triggers_adapter(&deployment, &requirements, unified_api_version.clone())
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "no adapter for network {} with capabilities {}",
+                        chain.name, requirements
+                    )
+                }),
+            source_subgraph_stores,
+        );
+
+        let logger = chain
+            .logger_factory
+            .subgraph_logger(&deployment)
+            .new(o!("component" => "BlockStream"));
+        let chain_store = chain.chain_store();
+
+        let reorg_threshold = match chain.chain_client().as_ref() {
+            ChainClient::Rpc(_) => {
+                unreachable!();
+            }
+            _ if is_using_subgraph_composition => 200, // TODO(krishna)
+            _ => 200,                                  // TODO(krishna)
+        };
+
+        let chain_head_update_stream = chain
+            .chain_head_update_listener
+            .subscribe(chain.name.to_string(), logger.clone());
+
+        Ok(Box::new(PollingBlockStream::new(
+            chain_store,
+            chain_head_update_stream,
+            Arc::new(adapter),
+            NodeId::new(chain.name.clone()).unwrap(), // TODO(krishna)
+            deployment.hash,
+            filter,
+            start_blocks,
+            reorg_threshold,
+            logger,
+            100, // TODO(krishna)
+            100, // TODO(krishna)
+            unified_api_version,
+            subgraph_current_block,
+        )))
     }
 }
 
@@ -166,6 +216,7 @@ pub struct Chain {
     logger_factory: LoggerFactory,
     name: ChainId,
     client: Arc<ChainClient<Self>>,
+    chain_head_update_listener: Arc<dyn ChainHeadUpdateListener>,
     chain_store: Arc<dyn ChainStore>,
     metrics_registry: Arc<MetricsRegistry>,
     block_stream_builder: Arc<dyn BlockStreamBuilder<Self>>,
@@ -186,6 +237,7 @@ impl BlockchainBuilder<Chain> for BasicBlockchainBuilder {
             name: self.name,
             chain_store: self.chain_store,
             client: Arc::new(ChainClient::new_firehose(self.firehose_endpoints)),
+            chain_head_update_listener: self.chain_head_update_listener,
             metrics_registry: self.metrics_registry,
             block_stream_builder: Arc::new(NearStreamBuilder {}),
             prefer_substreams: config.prefer_substreams_block_streams,

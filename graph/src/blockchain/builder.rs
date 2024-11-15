@@ -1,6 +1,6 @@
 use tonic::async_trait;
 
-use super::Blockchain;
+use super::{Blockchain, ChainHeadUpdateListener};
 use crate::{
     components::store::ChainStore, data::value::Word, env::EnvVars, firehose::FirehoseEndpoints,
     prelude::LoggerFactory, prelude::MetricsRegistry,
@@ -14,6 +14,7 @@ pub struct BasicBlockchainBuilder {
     pub name: Word,
     pub chain_store: Arc<dyn ChainStore>,
     pub firehose_endpoints: FirehoseEndpoints,
+    pub chain_head_update_listener: Arc<dyn ChainHeadUpdateListener>,
     pub metrics_registry: Arc<MetricsRegistry>,
 }
 
