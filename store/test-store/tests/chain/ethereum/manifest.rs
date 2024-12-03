@@ -1490,7 +1490,6 @@ dataSources:
     });
 }
 
-
 #[test]
 fn parses_eth_call_decls_for_subgraph_datasource() {
     const YAML: &str = "

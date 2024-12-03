@@ -1,8 +1,12 @@
 use crate::{
-    blockchain::{block_stream::EntityWithType, Block, Blockchain}, components::{link_resolver::LinkResolver, store::BlockNumber}, data::{
+    blockchain::{block_stream::EntityWithType, Block, Blockchain},
+    components::{link_resolver::LinkResolver, store::BlockNumber},
+    data::{
         subgraph::{calls_host_fn, SPEC_VERSION_1_3_0},
         value::Word,
-    }, data_source, ensure, prelude::{CheapClone, DataSourceContext, DeploymentHash, Link}
+    },
+    data_source, ensure,
+    prelude::{CheapClone, DataSourceContext, DeploymentHash, Link},
 };
 use anyhow::{anyhow, Context, Error, Result};
 use futures03::{stream::FuturesOrdered, TryStreamExt};
@@ -74,18 +78,20 @@ impl DataSource {
         if self.source.address != trigger.source {
             return Ok(None);
         }
-    
-        let mut matching_handlers: Vec<_> = self.mapping.handlers
+
+        let mut matching_handlers: Vec<_> = self
+            .mapping
+            .handlers
             .iter()
             .filter(|handler| handler.entity == trigger.entity_type())
             .collect();
-    
+
         // Get the matching handler if any
         let handler = match matching_handlers.pop() {
             Some(handler) => handler,
             None => return Ok(None),
         };
-    
+
         ensure!(
             matching_handlers.is_empty(),
             format!(
@@ -93,13 +99,14 @@ impl DataSource {
                 trigger.entity_type()
             )
         );
-    
-        let calls = DeclaredCall::from_entity_handler(&self.mapping, &handler.calls, &trigger.entity)?;
+
+        let calls =
+            DeclaredCall::from_entity_handler(&self.mapping, &handler.calls, &trigger.entity)?;
         let mapping_trigger = MappingEntityTrigger {
             data: trigger.clone(),
             calls,
         };
-    
+
         Ok(Some(TriggerWithHandler::new(
             data_source::MappingTrigger::Subgraph(mapping_trigger),
             handler.handler.clone(),
