@@ -15,7 +15,7 @@ use slog::{info, Logger};
 use std::{fmt, sync::Arc};
 
 use super::{
-    common::{CallDecls, MappingABI, UnresolvedMappingABI},
+    common::{CallDecls, DeclaredCall, FindMappingABI, MappingABI, UnresolvedMappingABI},
     DataSourceTemplateInfo, TriggerWithHandler,
 };
 
@@ -143,8 +143,10 @@ impl Mapping {
     pub fn requires_archive(&self) -> anyhow::Result<bool> {
         calls_host_fn(&self.runtime, "ethereum.call")
     }
+}
 
-    pub fn find_abi(&self, abi_name: &str) -> Result<Arc<MappingABI>, Error> {
+impl FindMappingABI for Mapping {
+    fn find_abi(&self, abi_name: &str) -> Result<Arc<MappingABI>, Error> {
         Ok(self
             .abis
             .iter()

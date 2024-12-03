@@ -1,5 +1,5 @@
 use crate::blockchain::block_stream::EntityWithType;
-use crate::prelude::Value;
+use crate::prelude::{BlockPtr, Value};
 use crate::{components::link_resolver::LinkResolver, data::value::Word, prelude::Link};
 use anyhow::{anyhow, Context, Error};
 use ethabi::{Address, Contract, Function, LogParam, ParamType, Token};
@@ -299,6 +299,26 @@ impl CallDecl {
             )),
         }
     }
+
+    pub fn get_function(&self, mapping: &dyn FindMappingABI) -> Result<Function, anyhow::Error> {
+        let contract_name = self.expr.abi.to_string();
+        let function_name = self.expr.func.as_str();
+        let abi = mapping.find_abi(&contract_name)?;
+
+        // TODO: Handle overloaded functions
+        // Behavior for apiVersion < 0.0.4: look up function by name; for overloaded
+        // functions this always picks the same overloaded variant, which is incorrect
+        // and may lead to encoding/decoding errors
+        abi.contract
+            .function(function_name)
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "Unknown function \"{}::{}\" called from WASM runtime",
+                    contract_name, function_name
+                )
+            })
+    }
 }
 
 impl CallDecls {
@@ -498,6 +518,10 @@ impl FromStr for CallArg {
     }
 }
 
+pub trait FindMappingABI {
+    fn find_abi(&self, abi_name: &str) -> Result<Arc<MappingABI>, Error>;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -623,4 +647,103 @@ mod tests {
             CallArg::Subgraph(SubgraphArg::EntityParam(_))
         ));
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeclaredCall {
+    /// The user-supplied label from the manifest
+    label: String,
+    contract_name: String,
+    address: Address,
+    function: Function,
+    args: Vec<Token>,
+}
+
+impl DeclaredCall {
+    pub fn new(
+        mapping: &dyn FindMappingABI,
+        call_decls: &CallDecls,
+        log: &Log,
+        params: &[LogParam],
+    ) -> Result<Vec<DeclaredCall>, anyhow::Error> {
+        Self::create_calls(mapping, call_decls, |decl, _| {
+            Ok((
+                decl.address_for_log(log, params)?,
+                decl.args_for_log(log, params)?,
+            ))
+        })
+    }
+
+    pub fn from_entity_handler(
+        mapping: &dyn FindMappingABI,
+        call_decls: &CallDecls,
+        entity: &EntityWithType,
+    ) -> Result<Vec<DeclaredCall>, anyhow::Error> {
+        Self::create_calls(mapping, call_decls, |decl, function| {
+            let param_types = function
+                .inputs
+                .iter()
+                .map(|param| param.kind.clone())
+                .collect::<Vec<_>>();
+
+            Ok((
+                decl.address_for_entity_handler(entity)?,
+                decl.args_for_entity_handler(entity, param_types)
+                    .context(format!(
+                        "Failed to parse arguments for call to function \"{}\" of contract \"{}\"",
+                        decl.expr.func.as_str(),
+                        decl.expr.abi.to_string()
+                    ))?,
+            ))
+        })
+    }
+
+    fn create_calls<F>(
+        mapping: &dyn FindMappingABI,
+        call_decls: &CallDecls,
+        get_address_and_args: F,
+    ) -> Result<Vec<DeclaredCall>, anyhow::Error>
+    where
+        F: Fn(&CallDecl, &Function) -> Result<(Address, Vec<Token>), anyhow::Error>,
+    {
+        let mut calls = Vec::new();
+        for decl in call_decls.decls.iter() {
+            let contract_name = decl.expr.abi.to_string();
+            let function = decl.get_function(mapping)?;
+            let (address, args) = get_address_and_args(decl, &function)?;
+
+            calls.push(DeclaredCall {
+                label: decl.label.clone(),
+                contract_name,
+                address,
+                function: function.clone(),
+                args,
+            });
+        }
+        Ok(calls)
+    }
+
+    pub fn as_eth_call(self, block_ptr: BlockPtr, gas: Option<u32>) -> (ContractCall, String) {
+        (
+            ContractCall {
+                contract_name: self.contract_name,
+                address: self.address,
+                block_ptr,
+                function: self.function,
+                args: self.args,
+                gas,
+            },
+            self.label,
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ContractCall {
+    pub contract_name: String,
+    pub address: Address,
+    pub block_ptr: BlockPtr,
+    pub function: Function,
+    pub args: Vec<Token>,
+    pub gas: Option<u32>,
 }

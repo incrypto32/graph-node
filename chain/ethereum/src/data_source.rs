@@ -1,20 +1,20 @@
 use anyhow::{anyhow, Error};
 use anyhow::{ensure, Context};
-use graph::blockchain::block_stream::EntityWithType;
 use graph::blockchain::{BlockPtr, TriggerWithHandler};
 use graph::components::metrics::subgraph::SubgraphInstanceMetrics;
 use graph::components::store::{EthereumCallCache, StoredDynamicDataSource};
 use graph::components::subgraph::{HostMetrics, InstanceDSTemplateInfo, MappingError};
 use graph::components::trigger_processor::RunnableTriggers;
-use graph::data_source::common::{CallDecls, MappingABI, UnresolvedMappingABI};
-use graph::data_source::subgraph::{EntityHandler, Mapping as SubgraphDataSourceMapping};
+use graph::data_source::common::{
+    CallDecls, DeclaredCall, FindMappingABI, MappingABI, UnresolvedMappingABI,
+};
 use graph::data_source::CausalityRegion;
 use graph::env::ENV_VARS;
 use graph::futures03::future::try_join;
 use graph::futures03::stream::FuturesOrdered;
 use graph::futures03::TryStreamExt;
 use graph::prelude::ethabi::ethereum_types::H160;
-use graph::prelude::ethabi::{StateMutability, Token};
+use graph::prelude::ethabi::StateMutability;
 use graph::prelude::{Link, SubgraphManifestValidationError};
 use graph::slog::{debug, error, o, trace};
 use itertools::Itertools;
@@ -48,7 +48,7 @@ use crate::adapter::EthereumAdapter as _;
 use crate::chain::Chain;
 use crate::network::EthereumNetworkAdapters;
 use crate::trigger::{EthereumBlockTriggerType, EthereumTrigger, MappingTrigger};
-use crate::{ContractCall, NodeCapabilities};
+use crate::NodeCapabilities;
 
 // The recommended kind is `ethereum`, `ethereum/contract` is accepted for backwards compatibility.
 const ETHEREUM_KINDS: &[&str] = &["ethereum/contract", "ethereum"];
@@ -800,7 +800,7 @@ impl DataSource {
                     "transaction" => format!("{}", &transaction.hash),
                 });
                 let handler = event_handler.handler.clone();
-                let calls = DeclaredCall::new(&self.mapping, &event_handler, &log, &params)?;
+                let calls = DeclaredCall::new(&self.mapping, &event_handler.calls, &log, &params)?;
                 Ok(Some(TriggerWithHandler::<Chain>::new_with_logging_extras(
                     MappingTrigger::Log {
                         block: block.cheap_clone(),
@@ -928,124 +928,6 @@ impl DataSource {
                 )))
             }
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct DeclaredCall {
-    /// The user-supplied label from the manifest
-    label: String,
-    contract_name: String,
-    address: Address,
-    function: Function,
-    args: Vec<Token>,
-}
-
-impl DeclaredCall {
-    fn new(
-        mapping: &Mapping,
-        handler: &MappingEventHandler,
-        log: &Log,
-        params: &[LogParam],
-    ) -> Result<Vec<DeclaredCall>, anyhow::Error> {
-        let mut calls = Vec::new();
-        for decl in handler.calls.decls.iter() {
-            let contract_name = decl.expr.abi.to_string();
-            let function_name = decl.expr.func.as_str();
-            // Obtain the path to the contract ABI
-            let abi = mapping.find_abi(&contract_name)?;
-            // TODO: Handle overloaded functions
-            let function = {
-                // Behavior for apiVersion < 0.0.4: look up function by name; for overloaded
-                // functions this always picks the same overloaded variant, which is incorrect
-                // and may lead to encoding/decoding errors
-                abi.contract.function(function_name).with_context(|| {
-                    format!(
-                        "Unknown function \"{}::{}\" called from WASM runtime",
-                        contract_name, function_name
-                    )
-                })?
-            };
-
-            let address = decl.address_for_log(log, params)?;
-            let args = decl.args_for_log(log, params)?;
-
-            let call = DeclaredCall {
-                label: decl.label.clone(),
-                contract_name,
-                address,
-                function: function.clone(),
-                args,
-            };
-            calls.push(call);
-        }
-
-        Ok(calls)
-    }
-
-    fn from_entity_handler(
-        mapping: &SubgraphDataSourceMapping,
-        handler: &EntityHandler,
-        entity: &EntityWithType,
-    ) -> Result<Vec<DeclaredCall>, anyhow::Error> {
-        let mut calls = Vec::new();
-        for decl in handler.calls.decls.iter() {
-            let contract_name = decl.expr.abi.to_string();
-            let function_name = decl.expr.func.as_str();
-            // Obtain the path to the contract ABI
-            let abi = mapping.find_abi(&contract_name)?;
-            // TODO: Handle overloaded functions
-            let function = {
-                // Behavior for apiVersion < 0.0.4: look up function by name; for overloaded
-                // functions this always picks the same overloaded variant, which is incorrect
-                // and may lead to encoding/decoding errors
-                abi.contract.function(function_name).with_context(|| {
-                    format!(
-                        "Unknown function \"{}::{}\" called from WASM runtime",
-                        contract_name, function_name
-                    )
-                })?
-            };
-
-            let param_types = function
-                .inputs
-                .iter()
-                .map(|param| param.kind.clone())
-                .collect::<Vec<_>>();
-
-            let address = decl.address_for_entity_handler(entity)?;
-            let args = decl
-                .args_for_entity_handler(entity, param_types)
-                .context(format!(
-                    "Failed to parse arguments for call to function \"{}\" of contract \"{}\"",
-                    function_name, contract_name
-                ))?;
-
-            let call = DeclaredCall {
-                label: decl.label.clone(),
-                contract_name,
-                address,
-                function: function.clone(),
-                args,
-            };
-            calls.push(call);
-        }
-
-        Ok(calls)
-    }
-
-    fn as_eth_call(self, block_ptr: BlockPtr, gas: Option<u32>) -> (ContractCall, String) {
-        (
-            ContractCall {
-                contract_name: self.contract_name,
-                address: self.address,
-                block_ptr,
-                function: self.function,
-                args: self.args,
-                gas,
-            },
-            self.label,
-        )
     }
 }
 
@@ -1421,8 +1303,10 @@ impl Mapping {
             .iter()
             .any(|handler| matches!(handler.filter, Some(BlockHandlerFilter::Call)))
     }
+}
 
-    pub fn find_abi(&self, abi_name: &str) -> Result<Arc<MappingABI>, Error> {
+impl FindMappingABI for Mapping {
+    fn find_abi(&self, abi_name: &str) -> Result<Arc<MappingABI>, Error> {
         Ok(self
             .abis
             .iter()
