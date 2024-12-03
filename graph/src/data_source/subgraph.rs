@@ -1,14 +1,10 @@
 use crate::{
-    blockchain::{block_stream::EntityWithType, Block, Blockchain},
-    components::{link_resolver::LinkResolver, store::BlockNumber},
-    data::{
+    blockchain::{block_stream::EntityWithType, Block, Blockchain}, components::{link_resolver::LinkResolver, store::BlockNumber}, data::{
         subgraph::{calls_host_fn, SPEC_VERSION_1_3_0},
         value::Word,
-    },
-    data_source,
-    prelude::{CheapClone, DataSourceContext, DeploymentHash, Link},
+    }, data_source, ensure, prelude::{CheapClone, DataSourceContext, DeploymentHash, Link}
 };
-use anyhow::{anyhow, Context, Error};
+use anyhow::{anyhow, Context, Error, Result};
 use futures03::{stream::FuturesOrdered, TryStreamExt};
 use serde::Deserialize;
 use slog::{info, Logger};
@@ -74,28 +70,42 @@ impl DataSource {
         &self,
         block: &Arc<C::Block>,
         trigger: &TriggerData,
-    ) -> Option<TriggerWithHandler<super::MappingTrigger<C>>> {
+    ) -> Result<Option<TriggerWithHandler<super::MappingTrigger<C>>>> {
         if self.source.address != trigger.source {
-            return None;
+            return Ok(None);
         }
-
-        let trigger_ref = self.mapping.handlers.iter().find_map(|handler| {
-            if handler.entity != trigger.entity_type() {
-                return None;
-            }
-
-            // let calls =
-            //     DeclaredCall::from_entity_handler(&self.mapping, &event_handler, &log, &params)?;
-
-            Some(TriggerWithHandler::new(
-                data_source::MappingTrigger::Subgraph(trigger.clone()),
-                handler.handler.clone(),
-                block.ptr(),
-                block.timestamp(),
-            ))
-        });
-
-        return trigger_ref;
+    
+        let mut matching_handlers: Vec<_> = self.mapping.handlers
+            .iter()
+            .filter(|handler| handler.entity == trigger.entity_type())
+            .collect();
+    
+        // Get the matching handler if any
+        let handler = match matching_handlers.pop() {
+            Some(handler) => handler,
+            None => return Ok(None),
+        };
+    
+        ensure!(
+            matching_handlers.is_empty(),
+            format!(
+                "Multiple handlers defined for entity `{}`, only one is supported",
+                trigger.entity_type()
+            )
+        );
+    
+        let calls = DeclaredCall::from_entity_handler(&self.mapping, &handler.calls, &trigger.entity)?;
+        let mapping_trigger = MappingEntityTrigger {
+            data: trigger.clone(),
+            calls,
+        };
+    
+        Ok(Some(TriggerWithHandler::new(
+            data_source::MappingTrigger::Subgraph(mapping_trigger),
+            handler.handler.clone(),
+            block.ptr(),
+            block.timestamp(),
+        )))
     }
 
     pub fn address(&self) -> Option<Vec<u8>> {
@@ -324,6 +334,12 @@ impl UnresolvedDataSourceTemplate {
             mapping,
         })
     }
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct MappingEntityTrigger {
+    pub data: TriggerData,
+    pub calls: Vec<DeclaredCall>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
