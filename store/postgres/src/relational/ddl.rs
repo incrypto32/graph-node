@@ -116,10 +116,11 @@ impl Table {
             Ok(cols)
         }
 
-        let vid_type = if !self.object.is_object_type() {
-            "bigserial"
-        } else {
+        // Currently the agregations entities don't have VIDs in insertion order
+        let vid_type = if self.object.is_object_type() {
             "bigint"
+        } else {
+            "bigserial"
         };
 
         if self.immutable {

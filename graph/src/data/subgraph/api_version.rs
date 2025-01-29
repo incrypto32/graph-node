@@ -54,9 +54,10 @@ pub const SPEC_VERSION_1_1_0: Version = Version::new(1, 1, 0);
 // Enables eth call declarations and indexed arguments(topics) filtering in manifest
 pub const SPEC_VERSION_1_2_0: Version = Version::new(1, 2, 0);
 
-// Enables subgraphs as datasource
-// Change the way the VID field is generated. It used to be autoincrement. Now its
-// based on block number and the sequence of the entities in a block.
+// Enables subgraphs as datasource.
+// Changes the way the VID field is generated. It used to be autoincrement. Now its
+// based on block number and the order of the entities in a block. The later is
+// representing the writting order of all entity types in a subgraph.
 pub const SPEC_VERSION_1_3_0: Version = Version::new(1, 3, 0);
 
 // The latest spec version available

@@ -35,7 +35,7 @@ pub(crate) const POI_OBJECT: &str = "Poi$";
 const POI_DIGEST: &str = "digest";
 /// The name of the PoI attribute for storing the block time
 const POI_BLOCK_TIME: &str = "blockTime";
-const VID_FIELD: &str = "vid";
+pub(crate) const VID_FIELD: &str = "vid";
 
 pub mod kw {
     pub const ENTITY: &str = "entity";

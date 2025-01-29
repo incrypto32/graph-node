@@ -3,7 +3,7 @@ use crate::{
     derive::CacheWeight,
     prelude::{lazy_static, q, r, s, CacheWeight, QueryExecutionError},
     runtime::gas::{Gas, GasSizeOf},
-    schema::{EntityKey, EntityType},
+    schema::{input::VID_FIELD, EntityKey, EntityType},
     util::intern::{self, AtomPool},
     util::intern::{Error as InternError, NullValue, Object},
 };
@@ -913,7 +913,7 @@ impl Entity {
     /// Return the VID of this entity and if its missing or of a type different than
     /// i64 it panics.
     pub fn vid(&self) -> i64 {
-        self.get("vid")
+        self.get(VID_FIELD)
             .expect("the vid is set")
             .as_int8()
             .expect("the vid is set to a valid value")
@@ -921,13 +921,13 @@ impl Entity {
 
     /// Sets the VID of the entity. The previous one is returned.
     pub fn set_vid(&mut self, value: i64) -> Result<Option<Value>, InternError> {
-        self.0.insert("vid", value.into())
+        self.0.insert(VID_FIELD, value.into())
     }
 
     /// Sets the VID if it's not already set. Should be used only for tests.
     #[cfg(debug_assertions)]
     pub fn set_vid_if_empty(&mut self) {
-        let vid = self.get("vid");
+        let vid = self.get(VID_FIELD);
         if vid.is_none() {
             let _ = self.set_vid(100).expect("the vid should be set");
         }

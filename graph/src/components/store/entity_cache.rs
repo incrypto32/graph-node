@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
@@ -17,8 +17,8 @@ use super::{BlockNumber, DerivedEntityQuery, LoadRelatedRequest, StoreError};
 
 pub type EntityLfuCache = LfuCache<EntityKey, Option<Arc<Entity>>>;
 
-// Number of VIDs that are reserved ourside of the generated ones here.
-// Currently only 1 for POIs is used, but lets reserve a few more.
+// Number of VIDs that are reserved outside of the generated ones here.
+// Currently none is used, but lets reserve a few more.
 const RESERVED_VIDS: u32 = 100;
 
 /// The scope in which the `EntityCache` should perform a `get` operation
@@ -374,7 +374,9 @@ impl EntityCache {
         let mut entity = entity;
         let old_vid = entity.set_vid(vid).expect("the vid should be set");
         // Make sure that there was no VID previously set for this entity.
-        assert!(old_vid.is_none());
+        if old_vid.is_some() {
+            bail!("VID was already present when set in EntityCache");
+        }
 
         self.entity_op(key.clone(), EntityOp::Update(entity));
 
