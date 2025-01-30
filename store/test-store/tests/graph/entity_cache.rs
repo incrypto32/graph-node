@@ -181,7 +181,7 @@ impl WritableStore for MockStore {
     }
 }
 
-fn make_band_key(id: &'static str) -> EntityKey {
+fn make_band_key(id: &str) -> EntityKey {
     SCHEMA.entity_type("Band").unwrap().parse_key(id).unwrap()
 }
 
@@ -317,6 +317,44 @@ fn consecutive_modifications() {
             0,
         )])
     );
+}
+
+#[test]
+fn check_vid_sequence() {
+    let store = MockStore::new(BTreeMap::new());
+    let store = Arc::new(store);
+    let mut cache = EntityCache::new(store);
+
+    for n in 0..10 {
+        let id = (10 - n).to_string();
+        let name = format!("Mogwai");
+        let mogwai_key = make_band_key(id.as_str());
+        let mogwai_data = entity! { SCHEMA => id: id, name: name };
+        cache
+            .set(mogwai_key.clone(), mogwai_data.clone(), 0)
+            .unwrap();
+    }
+
+    let result = cache.as_modifications(0);
+    let mods = result.unwrap().modifications;
+    for m in mods {
+        match m {
+            EntityModification::Insert {
+                key: _,
+                data,
+                block: _,
+                end: _,
+            } => {
+                let id = data.id().to_string();
+                let insert_order = data.vid() - 100;
+                // check that the order of the insertions matches VID order by comparing
+                // it to the value of the ID (which is inserted in decreasing order)
+                let id_value = 10 - insert_order;
+                assert_eq!(id, format!("{}", id_value));
+            }
+            _ => panic!("wrong entity modification type"),
+        }
+    }
 }
 
 const ACCOUNT_GQL: &str = "
