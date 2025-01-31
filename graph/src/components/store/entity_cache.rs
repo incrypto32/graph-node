@@ -374,8 +374,13 @@ impl EntityCache {
         let mut entity = entity;
         let old_vid = entity.set_vid(vid).expect("the vid should be set");
         // Make sure that there was no VID previously set for this entity.
-        if old_vid.is_some() {
-            bail!("VID was already present when set in EntityCache");
+        if let Some(ovid) = old_vid {
+            bail!(
+                "VID: {} of entity: {} with ID: {} was already present when set in EntityCache",
+                ovid,
+                key.entity_type,
+                entity.id()
+            );
         }
 
         self.entity_op(key.clone(), EntityOp::Update(entity));
