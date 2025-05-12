@@ -1,0 +1,178 @@
+name: Build gnd Binaries
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build gnd for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            asset_name: gnd-linux-x86_64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: gnd-linux-aarch64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            asset_name: gnd-macos-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset_name: gnd-macos-aarch64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset_name: gnd-windows-x86_64.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Install dependencies (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev protobuf-compiler musl-tools
+          # For cross-compilation to aarch64
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          fi
+
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew install postgresql protobuf
+
+      - name: Install dependencies (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          # Install protobuf using Chocolatey
+          choco install protoc
+
+      - name: Set cross-compilation environment variables
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
+
+      - name: Build gnd binary
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --bin gnd --release --target ${{ matrix.target }}
+
+      - name: Prepare binary (Unix)
+        if: ${{ !startsWith(matrix.os, 'windows') }}
+        run: |
+          cp target/${{ matrix.target }}/release/gnd ${{ matrix.asset_name }}
+          chmod +x ${{ matrix.asset_name }}
+          gzip ${{ matrix.asset_name }}
+
+      - name: Prepare binary (Windows)
+        if: startsWith(matrix.os, 'windows')
+        run: |
+          copy target\${{ matrix.target }}\release\gnd.exe ${{ matrix.asset_name }}
+          7z a -tzip ${{ matrix.asset_name }}.zip ${{ matrix.asset_name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: |
+            ${{ matrix.asset_name }}.gz
+            ${{ matrix.asset_name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Create Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Linux x86_64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/gnd-linux-x86_64/gnd-linux-x86_64.gz
+          asset_name: gnd-linux-x86_64.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Linux ARM64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/gnd-linux-aarch64/gnd-linux-aarch64.gz
+          asset_name: gnd-linux-aarch64.gz
+          asset_content_type: application/gzip
+
+      - name: Upload macOS x86_64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/gnd-macos-x86_64/gnd-macos-x86_64.gz
+          asset_name: gnd-macos-x86_64.gz
+          asset_content_type: application/gzip
+
+      - name: Upload macOS ARM64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/gnd-macos-aarch64/gnd-macos-aarch64.gz
+          asset_name: gnd-macos-aarch64.gz
+          asset_content_type: application/gzip
+
+      - name: Upload Windows x86_64 Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: artifacts/gnd-windows-x86_64.exe/gnd-windows-x86_64.exe.zip
+          asset_name: gnd-windows-x86_64.exe.zip
+          asset_content_type: application/zip 
