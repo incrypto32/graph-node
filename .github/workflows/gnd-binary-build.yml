@@ -57,8 +57,7 @@ jobs:
       - name: Install dependencies (macOS)
         if: startsWith(matrix.runner, 'macos')
         run: |
-          brew install postgresql protobuf openssl@3
-          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+          brew install postgresql protobuf
 
       - name: Install dependencies (Windows)
         if: startsWith(matrix.runner, 'windows')
