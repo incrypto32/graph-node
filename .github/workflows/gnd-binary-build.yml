@@ -66,19 +66,36 @@ jobs:
           # Install protobuf using Chocolatey
           choco install protoc
           
-          # Install PostgreSQL 
-          choco install postgresql
+          # Install vcpkg
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          .\bootstrap-vcpkg.bat
           
-          # Add PostgreSQL lib path to environment for the linker
-          echo "PQ_LIB_DIR=C:/Program Files/PostgreSQL/latest/lib" | Out-File -FilePath $env:GITHUB_ENV -Append
-          echo "RUSTFLAGS=-L `"C:/Program Files/PostgreSQL/latest/lib`"" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Install libpq using vcpkg
+          .\vcpkg.exe install libpq:x64-windows
+          
+          # Set environment variables for the build
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "LIBPQ_DIR=${{ github.workspace }}/vcpkg/installed/x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "RUSTFLAGS=-L ${{ github.workspace }}/vcpkg/installed/x64-windows/lib" | Out-File -FilePath $env:GITHUB_ENV -Append
         shell: pwsh
 
-      - name: Build gnd binary
+      - name: Build gnd binary (Unix/Mac)
+        if: ${{ !startsWith(matrix.runner, 'windows') }}
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --bin gnd --release --target ${{ matrix.target }}
+
+      - name: Build gnd binary (Windows)
+        if: startsWith(matrix.runner, 'windows')
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --bin gnd --release --target ${{ matrix.target }}
+        env:
+          LIBPQ_DIR: ${{ format('{0}/vcpkg/installed/x64-windows', github.workspace) }}
+          VCPKGRS_DYNAMIC: 1
 
       - name: Prepare binary (Unix)
         if: ${{ !startsWith(matrix.runner, 'windows') }}
