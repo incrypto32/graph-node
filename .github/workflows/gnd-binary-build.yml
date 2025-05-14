@@ -37,11 +37,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
+        run: |
+          rustup toolchain install stable
+          rustup target add ${{ matrix.target }}
+          rustup default stable
 
       - name: Install dependencies (Ubuntu)
         if: startsWith(matrix.runner, 'ubuntu')
@@ -76,17 +75,11 @@ jobs:
 
       - name: Build gnd binary (Unix/Mac)
         if: ${{ !startsWith(matrix.runner, 'windows') }}
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --bin gnd --release --target ${{ matrix.target }}
+        run: cargo build --bin gnd --release --target ${{ matrix.target }}
 
       - name: Build gnd binary (Windows)
         if: startsWith(matrix.runner, 'windows')
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --bin gnd --release --target ${{ matrix.target }}
+        run: cargo build --bin gnd --release --target ${{ matrix.target }}
         env:
           LIBPQ_DIR: ${{ format('{0}/vcpkg/installed/x64-windows', github.workspace) }}
           VCPKGRS_DYNAMIC: 1
