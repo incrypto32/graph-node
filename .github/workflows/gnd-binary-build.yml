@@ -109,7 +109,7 @@ jobs:
           certificate-data: ${{ secrets.APPLE_CERT_DATA }}
           certificate-password: ${{ secrets.APPLE_CERT_PASSWORD }}
           certificate-id: ${{ secrets.APPLE_TEAM_ID }}
-          options: --deep --options runtime --timestamp
+          options: --deep --timestamp
 
       - name: Notarize macOS binary
         if: startsWith(matrix.runner, 'macos')
@@ -171,14 +171,14 @@ jobs:
           # Extract version from ref (remove refs/tags/ prefix)
           VERSION=${GITHUB_REF#refs/tags/}
           
-          # Upload Linux x86_64 asset
-          gh release upload $VERSION artifacts/gnd-linux-x86_64/gnd-linux-x86_64.gz --repo $GITHUB_REPOSITORY
+          # # Upload Linux x86_64 asset
+          # gh release upload $VERSION artifacts/gnd-linux-x86_64/gnd-linux-x86_64.gz --repo $GITHUB_REPOSITORY
           
-          # Upload Linux ARM64 asset
-          gh release upload $VERSION artifacts/gnd-linux-aarch64/gnd-linux-aarch64.gz --repo $GITHUB_REPOSITORY
+          # # Upload Linux ARM64 asset
+          # gh release upload $VERSION artifacts/gnd-linux-aarch64/gnd-linux-aarch64.gz --repo $GITHUB_REPOSITORY
           
-          # Upload macOS x86_64 asset
-          gh release upload $VERSION artifacts/gnd-macos-x86_64/gnd-macos-x86_64.gz --repo $GITHUB_REPOSITORY
+          # # Upload macOS x86_64 asset
+          # gh release upload $VERSION artifacts/gnd-macos-x86_64/gnd-macos-x86_64.gz --repo $GITHUB_REPOSITORY
           
           # Upload macOS ARM64 asset
           gh release upload $VERSION artifacts/gnd-macos-aarch64/gnd-macos-aarch64.gz --repo $GITHUB_REPOSITORY
