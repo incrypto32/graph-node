@@ -7,7 +7,6 @@ extern crate diesel;
 
 pub mod chain;
 pub mod config;
-pub mod dev;
 mod helpers;
 pub mod launcher;
 pub mod manager;

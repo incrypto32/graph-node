@@ -1907,6 +1907,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "gnd"
+version = "0.36.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "git-testament",
+ "globset",
+ "graph",
+ "graph-core",
+ "graph-node",
+ "lazy_static",
+ "notify",
+ "pgtemp",
+ "serde",
+ "tokio",
+]
+
+[[package]]
 name = "graph"
 version = "0.36.0"
 dependencies = [
