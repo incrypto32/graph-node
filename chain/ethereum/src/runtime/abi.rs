@@ -117,20 +117,6 @@ impl ToAscObj<AscLogArray> for &[Log] {
     }
 }
 
-// impl ToAscObj<AscLogArray> for Vec<Log> {
-//     fn to_asc_obj<H: AscHeap + ?Sized>(
-//         &self,
-//         heap: &mut H,
-//         gas: &GasCounter,
-//     ) -> Result<AscLogArray, HostExportError> {
-//         let logs = self
-//             .iter()
-//             .map(|log| asc_new(heap, &log, gas))
-//             .collect::<Result<Vec<_>, _>>()?;
-//         Ok(AscLogArray(Array::new(&logs, heap, gas)?))
-//     }
-// }
-
 impl AscIndexId for AscLogArray {
     const INDEX_ASC_TYPE_ID: IndexForAscTypeId = IndexForAscTypeId::ArrayLog;
 }
